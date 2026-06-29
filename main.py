@@ -20,6 +20,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 from langchain_classic.retrievers.ensemble import EnsembleRetriever
 from langchain_community.retrievers import BM25Retriever
+from langchain_core.globals import set_llm_cache
+from langchain_community.cache import InMemoryCache
+from langchain_classic.retrievers.multi_query import MultiQueryRetriever
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain_classic.retrievers.document_compressors.chain_extract import LLMChainExtractor
 
 load_dotenv()
 
@@ -136,9 +141,22 @@ def ask_question(db, bm25_retriever, llm, question: str, filter_dict: dict = Non
         weights=[0.5, 0.5]
     )
     
+    # Advanced RAG: Multi-Query Retriever (Pre-retrieval Query Rewriting)
+    multi_query_retriever = MultiQueryRetriever.from_llm(
+        retriever=ensemble_retriever,
+        llm=llm
+    )
+    
+    # Advanced RAG: Contextual Compression (Post-retrieval Re-ranking/Filtering)
+    compressor = LLMChainExtractor.from_llm(llm)
+    compression_retriever = ContextualCompressionRetriever(
+        base_compressor=compressor,
+        base_retriever=multi_query_retriever
+    )
+    
     # 3. Combine the Retriever, the Prompt, and the LLM into a RAG Chain
     question_answer_chain = create_stuff_documents_chain(llm, prompt)
-    rag_chain = create_retrieval_chain(ensemble_retriever, question_answer_chain)
+    rag_chain = create_retrieval_chain(compression_retriever, question_answer_chain)
     
     # 4. Run the chain!
     response = rag_chain.invoke({"input": question})
@@ -146,6 +164,9 @@ def ask_question(db, bm25_retriever, llm, question: str, filter_dict: dict = Non
 
 
 def main():
+    # Enable global LLM cache
+    set_llm_cache(InMemoryCache())
+
     # Initialize the LLM
     llm = ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
     
