@@ -1,2 +1,0 @@
-This is a sample text file to load into a rag system and test our performance of the rag system.
-we will test it with a few questions and see how the rag system performs.

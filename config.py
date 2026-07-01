@@ -11,4 +11,4 @@ load_dotenv()
 set_llm_cache(InMemoryCache())
 
 def get_llm():
-    return ChatGroq(model_name="llama-3.1-8b-instant", temperature=0)
+    return ChatGroq(model_name="llama-3.1-8b-instant", temperature=0, streaming=True)

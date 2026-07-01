@@ -1,5 +1,6 @@
 import glob
-from langchain_community.document_loaders import TextLoader, PyPDFLoader
+import os
+from langchain_community.document_loaders import UnstructuredFileLoader
 from langchain_text_splitters import (
     RecursiveCharacterTextSplitter,
     CharacterTextSplitter,
@@ -8,20 +9,16 @@ from langchain_text_splitters import (
 )
 from database import get_or_create_vector_db
 
-def load_text_file(file_path: str):
-    loader = TextLoader(file_path)
-    return loader.load()
-
-def load_pdf_file(file_path: str):
-    loader = PyPDFLoader(file_path)
-    print("-" * 40)
+def load_file(file_path: str):
+    print(f"Loading {file_path}...")
+    loader = UnstructuredFileLoader(file_path)
     return loader.load()
 
 def populate_vector_db(db, documents):
     print("\n--- Chunking Documents ---")
     
     char_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200, separator="\n")
-    token_splitter = TokenTextSplitter(chunk_size=250, chunk_overlap=50) # Tokens contain multiple characters
+    token_splitter = TokenTextSplitter(chunk_size=250, chunk_overlap=50, allowed_special="all")
     md_splitter = MarkdownTextSplitter(chunk_size=1000, chunk_overlap=200)
     recursive_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
@@ -33,7 +30,7 @@ def populate_vector_db(db, documents):
         # Route the document to the appropriate splitter based on its file extension
         if source.endswith(".md"):
             chunks = md_splitter.split_documents([doc])
-        elif source.endswith(".txt"):
+        elif source.endswith(".txt") or source.endswith(".csv"):
             chunks = char_splitter.split_documents([doc])
         elif source.endswith(".pdf"):
             chunks = token_splitter.split_documents([doc])
@@ -62,21 +59,18 @@ def run_ingestion():
             
     # 2. Scan directories for available files
     all_files = []
-    all_files.extend(glob.glob("txt/**/*.txt", recursive=True))
-    all_files.extend(glob.glob("pdfs/**/*.pdf", recursive=True))
+    # Only scanning data_sources now
+    all_files.extend(glob.glob("data_sources/**/*.*", recursive=True))
     
     # 3. Filter for new files only
-    new_files = [f for f in all_files if f not in existing_sources]
+    new_files = [f for f in all_files if f not in existing_sources and os.path.isfile(f)]
     
     if new_files:
         print(f"Found {len(new_files)} new document(s) to ingest.")
         new_documents = []
         for file in new_files:
             try:
-                if file.endswith('.pdf'):
-                    new_documents.extend(load_pdf_file(file))
-                elif file.endswith('.txt'):
-                    new_documents.extend(load_text_file(file))
+                new_documents.extend(load_file(file))
             except Exception as e:
                 print(f"Failed to load {file}: {e}")
                 

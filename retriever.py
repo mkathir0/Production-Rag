@@ -86,7 +86,7 @@ async def aask_question(db, bm25_retriever, llm, messages: list, filter_dict: di
         elif msg.get("role") == "assistant":
             chat_history.append(AIMessage(content=msg.get("content", "")))
 
-    search_kwargs = {"k": 3}
+    search_kwargs = {"k": 10}
     if filter_dict:
         search_kwargs["filter"] = filter_dict
     vector_retriever = db.as_retriever(search_kwargs=search_kwargs)
@@ -104,8 +104,9 @@ async def aask_question(db, bm25_retriever, llm, messages: list, filter_dict: di
         "Given a chat history and the latest user question "
         "which might reference context in the chat history, "
         "formulate a standalone question which can be understood "
-        "without the chat history. Do NOT answer the question, "
-        "just reformulate it if needed and otherwise return it as is."
+        "without the chat history. "
+        "CRITICAL INSTRUCTION: If the latest question is already standalone (e.g. 'What is SQL?'), YOU MUST RETURN IT EXACTLY AS IS. Do not add conversational filler. "
+        "Do NOT answer the question, just reformulate it if needed and otherwise return it as is."
     )
     contextualize_q_prompt = ChatPromptTemplate.from_messages([
         ("system", contextualize_q_system_prompt),
@@ -122,9 +123,11 @@ async def aask_question(db, bm25_retriever, llm, messages: list, filter_dict: di
 
     # 2. QA Chain
     qa_system_prompt = (
-        "You are a helpful assistant. Use the following pieces of retrieved context "
-        "to answer the question. If you don't know the answer based on the context, "
-        "say that you don't know. Keep your answer clear and concise."
+        "You are an expert assistant. You MUST answer questions using ONLY the provided context below. "
+        "Do NOT use your own internal knowledge. "
+        "Always start your response exactly with 'Based on your documents...\\n\\n'. "
+        "If the answer is not contained in the context, say 'I cannot find the answer in the provided documents.' "
+        "IMPORTANT: Format your response using Markdown! Use **bold text** for key terms, bullet points for lists, and *italics* for emphasis to make the answer highly readable."
         "\n\n"
         "Context:\n{context}"
     )
@@ -136,20 +139,21 @@ async def aask_question(db, bm25_retriever, llm, messages: list, filter_dict: di
     question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
 
     # 3. Manual Retrieval & Streaming Generation
-    # By decoupling the retrieval from the QA chain, we can easily stream the actual tokens!
-    
     # Step A: Get the documents (awaits the history reformulation + vector search)
     docs = await history_aware_retriever.ainvoke({
         "input": latest_question, 
         "chat_history": chat_history
     })
     
-    # Step B: Stream the tokens directly from the QA chain
-    async for chunk in question_answer_chain.astream({
-        "input": latest_question, 
-        "chat_history": chat_history,
-        "context": docs
-    }):
-        # create_stuff_documents_chain yields strings when streamed!
-        if isinstance(chunk, str):
-            yield chunk
+    # Step B: Format the prompt manually with the retrieved documents
+    context_str = "\n\n".join([doc.page_content for doc in docs])
+    formatted_messages = qa_prompt.format_messages(
+        context=context_str,
+        chat_history=chat_history,
+        input=latest_question
+    )
+    
+    # Step C: Stream directly from the LLM to get true character-by-character animation
+    async for chunk in llm.astream(formatted_messages):
+        if chunk.content:
+            yield chunk.content

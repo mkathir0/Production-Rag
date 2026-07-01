@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Security, Request
+from fastapi import FastAPI, Depends, HTTPException, Security, Request, UploadFile, File
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -58,6 +58,9 @@ def verify_api_key(api_key: str = Security(api_key_header)):
     return token
 
 # Initialize resources once at startup
+from ingest import run_ingestion
+run_ingestion()
+
 llm = get_llm()
 db = get_or_create_vector_db()
 bm25_retriever = create_bm25_retriever(db)
@@ -76,3 +79,28 @@ async def chat(request: Request, body: ChatRequest):
             yield chunk
             
     return StreamingResponse(stream_generator(), media_type="text/plain")
+
+import aiofiles
+
+@app.post("/api/upload", dependencies=[Depends(verify_api_key)])
+@limiter.limit("10/minute")
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    # Ensure data_sources directory exists
+    os.makedirs("data_sources", exist_ok=True)
+    
+    file_path = os.path.join("data_sources", file.filename)
+    
+    # Save the file asynchronously
+    async with aiofiles.open(file_path, 'wb') as out_file:
+        content = await file.read()
+        await out_file.write(content)
+        
+    logger.info(f"File saved to {file_path}. Triggering ingestion...")
+    
+    # Trigger ingestion
+    try:
+        run_ingestion()
+        return {"filename": file.filename, "status": "success", "message": "File successfully uploaded and ingested into the knowledge base."}
+    except Exception as e:
+        logger.error(f"Ingestion failed: {e}")
+        raise HTTPException(status_code=500, detail=f"File uploaded, but ingestion failed: {str(e)}")
