@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>⚡ Production RAG Backend</h1>
+  <h1>OmniRAG Backend</h1>
   <p>A modular, high-performance Retrieval-Augmented Generation API built with FastAPI and LangChain.</p>
 
   <!-- Badges -->
@@ -12,7 +12,7 @@
 
 <br />
 
-## 📖 Overview
+## Overview
 
 This repository houses the backend infrastructure for a high-speed, scalable RAG system. It exposes a fully asynchronous REST API to handle document ingestion, hybrid vector/keyword search, and token-by-token streaming inference using Groq's LLaMA 3.1 architecture.
 
@@ -20,27 +20,27 @@ The system is designed with a strict Separation of Concerns, isolating the **Off
 
 ---
 
-## ✨ Features
+## Features
 
-- **🚀 Ultra-Fast Inference:** Powered by Groq for near-instantaneous token generation.
-- **🔄 Hybrid Search Retriever:** Combines Semantic Vector Search (ChromaDB + HuggingFace Embeddings) with Exact Keyword Match (BM25) using Reciprocal Rank Fusion.
-- **📡 Server-Sent Events (SSE):** True character-by-character streaming responses for seamless UI integration.
-- **📂 Universal File Ingestion:** Automatically parses and chunks `.pdf`, `.txt`, `.csv`, `.md`, and `.docx` files via `Unstructured`.
-- **🐳 Docker Ready:** Fully containerized for instant local development and production deployment.
-- **🔍 Observability:** Deep integration with LangSmith for token tracking, chain debugging, and latency monitoring.
+- **Ultra-Fast Inference:** Powered by Groq for near-instantaneous token generation.
+- **Hybrid Search Retriever:** Combines Semantic Vector Search (ChromaDB + HuggingFace Embeddings) with Exact Keyword Match (BM25) using Reciprocal Rank Fusion.
+- **Server-Sent Events (SSE):** True character-by-character streaming responses for seamless UI integration.
+- **Universal File Ingestion:** Automatically parses and chunks `.pdf`, `.txt`, `.csv`, `.md`, and `.docx` files via `Unstructured`.
+- **Docker Ready:** Fully containerized for instant local development and production deployment.
+- **Observability:** Deep integration with LangSmith for token tracking, chain debugging, and latency monitoring.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 graph TD
-    A[Client UI] -->|POST /api/upload| B(FastAPI Router)
-    A -->|POST /api/chat (SSE)| B
+    A[Client UI] -->|"POST /api/upload"| B(FastAPI Router)
+    A -->|"POST /api/chat (SSE)"| B
     
     subgraph Offline Ingestion
         B -->|Saves File| C[data_sources/]
-        C --> D[ingest.py - UnstructuredLoader]
+        C --> D["ingest.py - UnstructuredLoader"]
         D -->|Text Chunks| E[(ChromaDB)]
     end
 
@@ -49,14 +49,14 @@ graph TD
         F -->|Semantic Query| E
         F -->|Keyword Query| G[In-Memory BM25 Index]
         E & G -->|Reciprocal Rank Fusion| H[EnsembleRetriever]
-        H -->|Context| I[Groq LLM Llama-3.1]
+        H -->|Context| I["Groq LLM Llama-3.1"]
         I -->|Stream Chunks| B
     end
 ```
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - [Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/)
@@ -84,7 +84,7 @@ The API is now live at `http://localhost:8000`.
 
 ---
 
-## 💻 Manual Local Setup
+## Manual Local Setup
 
 If you prefer to run the application on bare-metal using the `uv` package manager:
 
@@ -101,7 +101,7 @@ uv run uvicorn main:app --reload
 
 ---
 
-## 📡 API Reference
+## API Reference
 
 ### `POST /api/upload`
 Uploads a document to the system and triggers the background ingestion pipeline.
@@ -123,7 +123,7 @@ Submits a conversation thread and streams back the AI's response using RAG.
 
 ---
 
-## 🛠️ Core Modules
+## Core Modules
 
 - **`config.py`**: Global configuration hub, LLM initialization, and caching logic.
 - **`database.py`**: Manages the persistent ChromaDB connection and dynamically builds the in-memory BM25 keyword index on startup.
@@ -134,5 +134,5 @@ Submits a conversation thread and streams back the AI's response using RAG.
 ---
 
 <div align="center">
-  <i>Built with ❤️ for High-Performance AI Engineering</i>
+  <i>Built for High-Performance AI Engineering</i>
 </div>
