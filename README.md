@@ -1,79 +1,138 @@
-# Production RAG Backend Architecture
+<div align="center">
+  <h1>⚡ Production RAG Backend</h1>
+  <p>A modular, high-performance Retrieval-Augmented Generation API built with FastAPI and LangChain.</p>
 
-This document serves as a comprehensive technical reference for the RAG (Retrieval-Augmented Generation) backend. The backend is designed as a modular, production-ready system utilizing FastAPI, LangChain, ChromaDB, and Groq.
+  <!-- Badges -->
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" /></a>
+  <a href="https://python.langchain.com/"><img src="https://img.shields.io/badge/LangChain-1C3C3C?style=for-the-badge&logo=langchain&logoColor=white" alt="LangChain" /></a>
+  <a href="https://groq.com/"><img src="https://img.shields.io/badge/Groq-f55036?style=for-the-badge&logo=groq&logoColor=white" alt="Groq" /></a>
+  <a href="https://www.trychroma.com/"><img src="https://img.shields.io/badge/ChromaDB-FF4B4B?style=for-the-badge&logo=chroma&logoColor=white" alt="ChromaDB" /></a>
+  <a href="https://docs.astral.sh/uv/"><img src="https://img.shields.io/badge/uv-000000?style=for-the-badge&logo=python&logoColor=white" alt="uv" /></a>
+</div>
 
-## 1. System Overview
+<br />
 
-The system strictly adheres to the principle of Separation of Concerns by isolating the **Offline Indexing Pipeline** (ingestion) from the **Online Query Pipeline** (serving requests).
+## 📖 Overview
 
-### Tech Stack
-*   **Web Framework:** FastAPI (with Uvicorn server)
-*   **Orchestration:** LangChain (`langchain-core`, `langchain-chroma`, `langchain-huggingface`, `langchain-community`, `langchain-classic`)
-*   **LLM Provider:** Groq (`llama-3.1-8b-instant`) for high-speed inference.
-*   **Vector Database:** ChromaDB (Persistent local storage)
-*   **Embeddings:** HuggingFace (`all-MiniLM-L6-v2`)
-*   **Package Manager:** `uv`
+This repository houses the backend infrastructure for a high-speed, scalable RAG system. It exposes a fully asynchronous REST API to handle document ingestion, hybrid vector/keyword search, and token-by-token streaming inference using Groq's LLaMA 3.1 architecture.
 
----
-
-## 2. Core Modules
-
-### `config.py` (Configuration)
-Serves as the global configuration hub.
-*   **Environment Variables:** Loads `.env` via `python-dotenv` (requires `GROQ_API_KEY`, `LANGSMITH_API_KEY`, etc.).
-*   **LLM Initialization:** Exposes `get_llm()` which returns the `ChatGroq` instance initialized with `temperature=0` for deterministic outputs.
-*   **Caching:** Implements an `InMemoryCache` using `langchain.globals.set_llm_cache()`. Exact duplicate LLM queries are instantly served from memory, costing 0 tokens.
-
-### `database.py` (Vector Store & Indexing)
-Manages the connection to data persistence layers.
-*   **`get_or_create_vector_db()`:** Connects to or initializes the ChromaDB instance at `./chroma_db` using the `rag_collection` namespace and HuggingFace embeddings.
-*   **`create_bm25_retriever()`:** A critical function for Hybrid Search. Because BM25 (keyword search) is a sparse, term-frequency index, it cannot be incrementally updated like a Vector DB. This function dynamically pulls all current text from ChromaDB and rebuilds the BM25 index entirely in memory upon server startup.
-
-### `ingest.py` (Offline Indexing Pipeline)
-A standalone script (`uv run ingest.py`) responsible for processing and storing documents without blocking the web server.
-*   **Incremental Updates:** Uses `glob` to scan `/txt` and `/pdfs` folders. Compares file paths against the `source` metadata of chunks already existing in ChromaDB. Only new, unprocessed files are ingested.
-*   **Dynamic Chunking Routing:** 
-    *   `.txt` files → `CharacterTextSplitter` (chunk_size: 1000, overlap: 200, sep: `\n`)
-    *   `.pdf` files → `TokenTextSplitter` (chunk_size: 250, overlap: 50)
-    *   `.md` files → `MarkdownTextSplitter`
-    *   Fallback → `RecursiveCharacterTextSplitter`
-*   After chunking, files are embedded and added to the Chroma instance.
-
-### `retriever.py` (Advanced RAG Pipeline)
-Houses the complex retrieval logic and chain execution.
-1.  **Base Retrievers:** Vector Search (Semantic) and BM25 (Keyword).
-2.  **EnsembleRetriever:** Combines the two base retrievers using Reciprocal Rank Fusion (weights: `[0.5, 0.5]`). This guarantees both semantic meaning and exact keyword matches are captured.
-3.  **MultiQueryRetriever:** A pre-retrieval optimization step. It uses the LLM to generate 3 semantically varying versions of the user's original query. The EnsembleRetriever is then executed for *all* variations in parallel to drastically improve recall.
-4.  **Note on Contextual Compression:** An `LLMChainExtractor` (Post-retrieval optimization) was originally implemented but was temporarily disabled to adhere to Groq's Free Tier Token Per Minute (TPM) limit of 6,000. Compressing chunks individually causes massive parallel LLM API calls resulting in HTTP 429 Rate Limit errors.
-
-### `main.py` (Online Query Pipeline / Web API)
-The entry point for the FastAPI server.
-*   Instantiates the LLM, connects to ChromaDB, and builds the BM25 index on startup.
-*   Implements `CORSMiddleware` allowing `*` origins (Note: Must be restricted to the frontend URL in a deployed production environment).
-*   Exposes `POST /api/chat` taking a `ChatRequest` Pydantic model (`{"message": "..."}`) and returning a `ChatResponse` (`{"answer": "..."}`).
+The system is designed with a strict Separation of Concerns, isolating the **Offline Indexing Pipeline** (ingestion) from the **Online Query Pipeline** (serving requests).
 
 ---
 
-## 3. LangSmith Observability
-The backend relies heavily on LangSmith for tracking and debugging.
-Because `LANGSMITH_TRACING=true` is set in the environment, every HTTP request hitting `/api/chat` generates a full trace.
-You can monitor:
-1.  The multi-query generation (what 3 queries the LLM came up with).
-2.  The exact documents retrieved by the Hybrid search.
-3.  The final prompt injected into the LLM.
-4.  Latency and token consumption for every stage of the chain.
+## ✨ Features
 
-## 4. Running the Project
+- **🚀 Ultra-Fast Inference:** Powered by Groq for near-instantaneous token generation.
+- **🔄 Hybrid Search Retriever:** Combines Semantic Vector Search (ChromaDB + HuggingFace Embeddings) with Exact Keyword Match (BM25) using Reciprocal Rank Fusion.
+- **📡 Server-Sent Events (SSE):** True character-by-character streaming responses for seamless UI integration.
+- **📂 Universal File Ingestion:** Automatically parses and chunks `.pdf`, `.txt`, `.csv`, `.md`, and `.docx` files via `Unstructured`.
+- **🐳 Docker Ready:** Fully containerized for instant local development and production deployment.
+- **🔍 Observability:** Deep integration with LangSmith for token tracking, chain debugging, and latency monitoring.
 
-**1. To process new documents (Offline):**
-```bash
-cd rag
-uv run ingest.py
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    A[Client UI] -->|POST /api/upload| B(FastAPI Router)
+    A -->|POST /api/chat (SSE)| B
+    
+    subgraph Offline Ingestion
+        B -->|Saves File| C[data_sources/]
+        C --> D[ingest.py - UnstructuredLoader]
+        D -->|Text Chunks| E[(ChromaDB)]
+    end
+
+    subgraph Online Retrieval & Generation
+        B --> F[retriever.py]
+        F -->|Semantic Query| E
+        F -->|Keyword Query| G[In-Memory BM25 Index]
+        E & G -->|Reciprocal Rank Fusion| H[EnsembleRetriever]
+        H -->|Context| I[Groq LLM Llama-3.1]
+        I -->|Stream Chunks| B
+    end
 ```
 
-**2. To run the API Server (Online):**
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- [Docker](https://www.docker.com/) & [Docker Compose](https://docs.docker.com/compose/)
+- Groq API Key (Get one free at [console.groq.com](https://console.groq.com))
+
+### 1. Environment Setup
+Clone the repository and create your environment file:
 ```bash
-cd rag
+cp .env.example .env
+```
+Add your keys to `.env`:
+```env
+GROQ_API_KEY=gsk_your_api_key_here
+LANGSMITH_API_KEY=lsv2_your_langsmith_key_here
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=rag-production
+```
+
+### 2. Run with Docker (Recommended)
+Boot the entire backend environment with a single command:
+```bash
+docker-compose up --build
+```
+The API is now live at `http://localhost:8000`.
+
+---
+
+## 💻 Manual Local Setup
+
+If you prefer to run the application on bare-metal using the `uv` package manager:
+
+```bash
+# 1. Sync dependencies and create virtual environment
+uv sync
+
+# 2. Run the ingestion pipeline (optional, automatically triggered on upload)
+uv run python ingest.py
+
+# 3. Start the FastAPI server
 uv run uvicorn main:app --reload
 ```
-The server will run on `http://127.0.0.1:8000`. You can view interactive Swagger UI API documentation at `http://127.0.0.1:8000/docs`.
+
+---
+
+## 📡 API Reference
+
+### `POST /api/upload`
+Uploads a document to the system and triggers the background ingestion pipeline.
+- **Accepts:** `multipart/form-data`
+- **Supported Formats:** `.pdf`, `.csv`, `.docx`, `.txt`, `.md`
+- **Response:** `{"message": "File uploaded successfully. Ingestion started in background."}`
+
+### `POST /api/chat`
+Submits a conversation thread and streams back the AI's response using RAG.
+- **Accepts:** `application/json`
+```json
+{
+  "messages": [
+    { "role": "user", "content": "What is the company's Q3 revenue?" }
+  ]
+}
+```
+- **Response:** `text/event-stream` (Server-Sent Events)
+
+---
+
+## 🛠️ Core Modules
+
+- **`config.py`**: Global configuration hub, LLM initialization, and caching logic.
+- **`database.py`**: Manages the persistent ChromaDB connection and dynamically builds the in-memory BM25 keyword index on startup.
+- **`ingest.py`**: Offline indexing script utilizing `UnstructuredFileLoader` for universal document parsing and smart chunking strategies.
+- **`retriever.py`**: The RAG brain. Orchestrates the `EnsembleRetriever` and formats the final prompt before streaming the Groq LLM response.
+- **`main.py`**: The FastAPI application entrypoint, defining routes, CORS policies, and background tasks.
+
+---
+
+<div align="center">
+  <i>Built with ❤️ for High-Performance AI Engineering</i>
+</div>
