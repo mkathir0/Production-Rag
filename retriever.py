@@ -98,11 +98,6 @@ async def aask_question(db, bm25_retriever, llm, messages: list, filter_dict: di
         )
     else:
         ensemble_retriever = vector_retriever
-        
-    multi_query_retriever = MultiQueryRetriever.from_llm(
-        retriever=ensemble_retriever,
-        llm=llm
-    )
 
     # 1. History Aware Retriever
     contextualize_q_system_prompt = (
@@ -117,8 +112,12 @@ async def aask_question(db, bm25_retriever, llm, messages: list, filter_dict: di
         MessagesPlaceholder("chat_history"),
         ("human", "{input}"),
     ])
+    
+    # We REMOVED MultiQueryRetriever here. It was causing multiple LLM calls 
+    # before retrieval, hitting Groq's 6000 TPM free tier limit and causing 
+    # 2-minute retry backoffs. EnsembleRetriever alone is plenty fast and accurate!
     history_aware_retriever = create_history_aware_retriever(
-        llm, multi_query_retriever, contextualize_q_prompt
+        llm, ensemble_retriever, contextualize_q_prompt
     )
 
     # 2. QA Chain
@@ -136,25 +135,21 @@ async def aask_question(db, bm25_retriever, llm, messages: list, filter_dict: di
     ])
     question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
 
-    # 3. RAG Chain
-    rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+    # 3. Manual Retrieval & Streaming Generation
+    # By decoupling the retrieval from the QA chain, we can easily stream the actual tokens!
     
-    # Stream the output
-    async for event in rag_chain.astream_events(
-        {"input": latest_question, "chat_history": chat_history}, 
-        version="v1"
-    ):
-        kind = event["event"]
-        if kind == "on_chat_model_stream":
-            # We only want to yield tokens from the final QA chain, not from the retriever rewriting the question
-            # The QA chain's LLM usually doesn't have a specific tag unless set, but we can filter by the node
-            # The event["name"] for ChatGroq might be ChatGroq. Let's yield all model stream for now, 
-            # wait, that might yield the reformulated query as well.
-            # To be safe, we check if the event is from the stuff_documents_chain or similar.
-            pass
-            
-    # Actually, astream_events can be complex to filter. 
-    # An easier way is just picking the `answer` from astream on the final chain.
-    async for chunk in rag_chain.astream({"input": latest_question, "chat_history": chat_history}):
-        if "answer" in chunk:
-            yield chunk["answer"]
+    # Step A: Get the documents (awaits the history reformulation + vector search)
+    docs = await history_aware_retriever.ainvoke({
+        "input": latest_question, 
+        "chat_history": chat_history
+    })
+    
+    # Step B: Stream the tokens directly from the QA chain
+    async for chunk in question_answer_chain.astream({
+        "input": latest_question, 
+        "chat_history": chat_history,
+        "context": docs
+    }):
+        # create_stuff_documents_chain yields strings when streamed!
+        if isinstance(chunk, str):
+            yield chunk
