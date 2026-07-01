@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from typing import List, Dict, Any
 from config import get_llm
 from database import get_or_create_vector_db, create_bm25_retriever
-from retriever import ask_question
+from retriever import ask_question, aask_question
 
 app = FastAPI()
 
@@ -22,12 +24,14 @@ db = get_or_create_vector_db()
 bm25_retriever = create_bm25_retriever(db)
 
 class ChatRequest(BaseModel):
-    message: str
+    messages: List[Dict[str, Any]]
 
-class ChatResponse(BaseModel):
-    answer: str
-
-@app.post("/api/chat", response_model=ChatResponse)
+@app.post("/api/chat")
 async def chat(request: ChatRequest):
-    answer = ask_question(db, bm25_retriever, llm, request.message)
-    return ChatResponse(answer=answer)
+    async def stream_generator():
+        async for chunk in aask_question(db, bm25_retriever, llm, request.messages):
+            # For simplicity, yielding raw text tokens. 
+            # If you want SSE, you would format as 'data: {chunk}\n\n'
+            yield chunk
+            
+    return StreamingResponse(stream_generator(), media_type="text/plain")
